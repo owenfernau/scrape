@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Ethereum Blob Fee Tracker</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
         * {
             margin: 0;
@@ -19,7 +20,7 @@
         }
         
         .container {
-            max-width: 900px;
+            max-width: 1200px;
             margin: 0 auto;
         }
         
@@ -99,6 +100,20 @@
             color: #60a5fa;
         }
         
+        .chart-container {
+            background: #1a1a1a;
+            border: 1px solid #2a2a2a;
+            border-radius: 12px;
+            padding: 24px;
+            margin-top: 30px;
+        }
+        
+        .chart-container h2 {
+            font-size: 1.2rem;
+            color: #fff;
+            margin-bottom: 20px;
+        }
+        
         @media (max-width: 640px) {
             h1 {
                 font-size: 2rem;
@@ -152,10 +167,96 @@
                 <div class="sub-value" id="block_revenue_eth">{{ block_revenue_eth }} ETH</div>
             </div>
         </div>
+        
+        <div class="chart-container">
+            <h2>Cost Per Blob Over Time</h2>
+            <canvas id="blobChart"></canvas>
+        </div>
     </div>
     
     <script>
-        // Fetch fresh data every 60 seconds
+        let chart;
+        
+        // Initialize chart
+        async function initChart() {
+            const ctx = document.getElementById('blobChart').getContext('2d');
+            
+            // Fetch historical data
+            const response = await fetch('/api/history');
+            const data = await response.json();
+            
+            // Prepare chart data
+            const labels = data.map(d => {
+                const date = new Date(d.timestamp);
+                return date.toLocaleTimeString();
+            });
+            const values = data.map(d => parseFloat(d.cost_per_blob_eth));
+            
+            chart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'Cost Per Blob (ETH)',
+                        data: values,
+                        borderColor: '#60a5fa',
+                        backgroundColor: 'rgba(96, 165, 250, 0.1)',
+                        tension: 0.4,
+                        fill: true
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: true,
+                    plugins: {
+                        legend: {
+                            labels: {
+                                color: '#e0e0e0'
+                            }
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            ticks: {
+                                color: '#888'
+                            },
+                            grid: {
+                                color: '#2a2a2a'
+                            }
+                        },
+                        x: {
+                            ticks: {
+                                color: '#888',
+                                maxRotation: 45,
+                                minRotation: 45
+                            },
+                            grid: {
+                                color: '#2a2a2a'
+                            }
+                        }
+                    }
+                }
+            });
+        }
+        
+        // Update chart with new data point
+        async function updateChart() {
+            const response = await fetch('/api/history');
+            const data = await response.json();
+            
+            const labels = data.map(d => {
+                const date = new Date(d.timestamp);
+                return date.toLocaleTimeString();
+            });
+            const values = data.map(d => parseFloat(d.cost_per_blob_eth));
+            
+            chart.data.labels = labels;
+            chart.data.datasets[0].data = values;
+            chart.update();
+        }
+        
+        // Update current metrics
         async function updateData() {
             try {
                 const response = await fetch('/api/data');
@@ -181,10 +282,16 @@
                     statusDiv.className = 'status active';
                     statusDiv.textContent = '✓ Blob fee floor is active';
                 }
+                
+                // Update chart
+                await updateChart();
             } catch (error) {
                 console.error('Error fetching data:', error);
             }
         }
+        
+        // Initialize on page load
+        initChart();
         
         // Update every 60 seconds
         setInterval(updateData, 60000);

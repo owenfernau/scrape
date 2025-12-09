@@ -1,12 +1,58 @@
 from flask import Flask, render_template, jsonify
 from web3 import Web3
 from datetime import datetime
+import csv
+import os
 
 app = Flask(__name__)
 
 # Set up Web3 connection with Alchemy
 ALCHEMY_URL = "https://eth-mainnet.g.alchemy.com/v2/RO2Tb1bd3ZAsR4den8E_9"
 w3 = Web3(Web3.HTTPProvider(ALCHEMY_URL))
+
+# CSV file for storing historical data
+CSV_FILE = 'blob_data.csv'
+
+def init_csv():
+    """Create CSV file with headers if it doesn't exist"""
+    if not os.path.exists(CSV_FILE):
+        with open(CSV_FILE, 'w', newline='') as f:
+            writer = csv.writer(f)
+            writer.writerow([
+                'timestamp',
+                'block_number',
+                'blob_fee_wei',
+                'blob_fee_eth',
+                'cost_per_blob_eth',
+                'blob_gas_used',
+                'block_revenue_eth'
+            ])
+
+def save_to_csv(data):
+    """Append new data to CSV"""
+    with open(CSV_FILE, 'a', newline='') as f:
+        writer = csv.writer(f)
+        writer.writerow([
+            data['timestamp'],
+            data['block_number'],
+            data['blob_fee_wei_raw'],
+            data['blob_fee_eth_raw'],
+            data['cost_per_blob_eth_raw'],
+            data['blob_gas_used_raw'],
+            data['block_revenue_eth_raw']
+        ])
+
+def read_csv_data():
+    """Read all historical data from CSV"""
+    if not os.path.exists(CSV_FILE):
+        return []
+    
+    data = []
+    with open(CSV_FILE, 'r') as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            data.append(row)
+    return data
 
 def get_blob_base_fee():
     """Get current blob base fee in wei"""
@@ -54,7 +100,7 @@ def get_blob_metrics():
     # Assume $4k ETH for USD calculations
     ETH_PRICE = 4000
     
-    return {
+    data = {
         'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
         'block_number': block_info['block_number'],
         'blob_fee_wei': f"{blob_fee_wei:,}",
@@ -64,8 +110,19 @@ def get_blob_metrics():
         'blob_gas_used': f"{block_info['blob_gas_used']:,}",
         'block_revenue_eth': f"{block_revenue:.6f}",
         'block_revenue_usd': f"${block_revenue * ETH_PRICE:.2f}",
-        'fee_is_zero': blob_fee_wei == 0
+        'fee_is_zero': blob_fee_wei == 0,
+        # Raw values for CSV storage
+        'blob_fee_wei_raw': blob_fee_wei,
+        'blob_fee_eth_raw': blob_fee_eth,
+        'cost_per_blob_eth_raw': cost_per_blob,
+        'blob_gas_used_raw': block_info['blob_gas_used'],
+        'block_revenue_eth_raw': block_revenue
     }
+    
+    # Save to CSV
+    save_to_csv(data)
+    
+    return data
 
 @app.route('/')
 def index():
@@ -85,7 +142,19 @@ def api_data():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+@app.route('/api/history')
+def api_history():
+    """API endpoint for fetching historical data"""
+    try:
+        data = read_csv_data()
+        return jsonify(data)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 if __name__ == '__main__':
+    # Initialize CSV file
+    init_csv()
+    
     # Check connection
     if not w3.is_connected():
         print("❌ Failed to connect to Ethereum node")
@@ -93,5 +162,6 @@ if __name__ == '__main__':
         exit(1)
     
     print("✓ Connected to Ethereum mainnet")
+    print("✓ CSV logging enabled")
     print("Starting Flask app at http://localhost:5000")
     app.run(debug=True, port=5000)

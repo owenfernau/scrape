@@ -1,7 +1,8 @@
-import json
-import time
-from datetime import datetime
+from flask import Flask, render_template, jsonify
 from web3 import Web3
+from datetime import datetime
+
+app = Flask(__name__)
 
 # Set up Web3 connection with Alchemy
 ALCHEMY_URL = "https://eth-mainnet.g.alchemy.com/v2/RO2Tb1bd3ZAsR4den8E_9"
@@ -37,12 +38,8 @@ def calculate_block_revenue(blob_base_fee_wei, blob_gas_used):
     revenue_wei = blob_base_fee_wei * blob_gas_used
     return wei_to_eth(revenue_wei)
 
-def track_blob_metrics():
-    """Main function to track and display blob metrics"""
-    print("=" * 60)
-    print("ETHEREUM BLOB FEE TRACKER")
-    print("=" * 60)
-    
+def get_blob_metrics():
+    """Fetch all blob metrics"""
     # Get blob base fee
     blob_fee_wei = get_blob_base_fee()
     blob_fee_eth = wei_to_eth(blob_fee_wei)
@@ -54,45 +51,47 @@ def track_blob_metrics():
     # Calculate revenue
     block_revenue = calculate_block_revenue(blob_fee_wei, block_info['blob_gas_used'])
     
-    # Display results
-    print(f"\nTimestamp: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    print(f"Block Number: {block_info['block_number']}")
-    print(f"\n--- BLOB FEE DATA ---")
-    print(f"Blob Base Fee: {blob_fee_wei:,} wei")
-    print(f"Blob Base Fee: {blob_fee_eth:.10f} ETH")
-    print(f"Cost per Blob: {cost_per_blob:.6f} ETH")
-    print(f"Cost per Blob: ${cost_per_blob * 4000:.2f} (@ $4k ETH)")
+    # Assume $4k ETH for USD calculations
+    ETH_PRICE = 4000
     
-    print(f"\n--- BLOCK DATA ---")
-    print(f"Blob Gas Used: {block_info['blob_gas_used']:,}")
-    print(f"Block Revenue: {block_revenue:.6f} ETH")
-    print(f"Block Revenue: ${block_revenue * 4000:.2f} (@ $4k ETH)")
-    
-    # Check if fee is zero (shouldn't be post-Fusaka)
-    if blob_fee_wei == 0:
-        print("\n⚠️  WARNING: Blob fee is ZERO!")
-    else:
-        print(f"\n✓ Blob fee floor is active")
-    
-    print("=" * 60)
+    return {
+        'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+        'block_number': block_info['block_number'],
+        'blob_fee_wei': f"{blob_fee_wei:,}",
+        'blob_fee_eth': f"{blob_fee_eth:.10f}",
+        'cost_per_blob_eth': f"{cost_per_blob:.6f}",
+        'cost_per_blob_usd': f"${cost_per_blob * ETH_PRICE:.2f}",
+        'blob_gas_used': f"{block_info['blob_gas_used']:,}",
+        'block_revenue_eth': f"{block_revenue:.6f}",
+        'block_revenue_usd': f"${block_revenue * ETH_PRICE:.2f}",
+        'fee_is_zero': blob_fee_wei == 0
+    }
 
-if __name__ == "__main__":
+@app.route('/')
+def index():
+    """Main page"""
+    try:
+        data = get_blob_metrics()
+        return render_template('index.html', **data)
+    except Exception as e:
+        return f"Error: {str(e)}", 500
+
+@app.route('/api/data')
+def api_data():
+    """API endpoint for fetching fresh data"""
+    try:
+        data = get_blob_metrics()
+        return jsonify(data)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+if __name__ == '__main__':
     # Check connection
     if not w3.is_connected():
         print("❌ Failed to connect to Ethereum node")
         print("Make sure to add your Alchemy API key!")
         exit(1)
     
-    print("✓ Connected to Ethereum mainnet\n")
-    
-    # Run once
-    track_blob_metrics()
-    
-    # Optional: Uncomment below to track continuously
-    # print("\nTracking every 60 seconds (Ctrl+C to stop)...\n")
-    # try:
-    #     while True:
-    #         track_blob_metrics()
-    #         time.sleep(60)
-    # except KeyboardInterrupt:
-    #     print("\n\nStopped tracking.")
+    print("✓ Connected to Ethereum mainnet")
+    print("Starting Flask app at http://localhost:5000")
+    app.run(debug=True, port=5000)

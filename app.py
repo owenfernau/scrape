@@ -3,6 +3,7 @@ from web3 import Web3
 from datetime import datetime
 import csv
 import os
+import requests
 
 app = Flask(__name__)
 
@@ -12,6 +13,34 @@ w3 = Web3(Web3.HTTPProvider(ALCHEMY_URL))
 
 # CSV file for storing historical data
 CSV_FILE = 'blob_data.csv'
+
+# Cache for ETH price (updates every 5 minutes)
+eth_price_cache = {'price': 4000, 'last_update': 0}
+
+def get_eth_price():
+    """Fetch current ETH price from CoinGecko"""
+    current_time = datetime.now().timestamp()
+    
+    # Use cached price if less than 5 minutes old
+    if current_time - eth_price_cache['last_update'] < 300:
+        return eth_price_cache['price']
+    
+    try:
+        response = requests.get(
+            'https://api.coingecko.com/api/v3/simple/price?ids=ethereum&vs_currencies=usd',
+            timeout=5
+        )
+        data = response.json()
+        price = data['ethereum']['usd']
+        
+        # Update cache
+        eth_price_cache['price'] = price
+        eth_price_cache['last_update'] = current_time
+        
+        return price
+    except Exception as e:
+        print(f"Error fetching ETH price: {e}")
+        return eth_price_cache['price']  # Return cached price on error
 
 def init_csv():
     """Create CSV file with headers if it doesn't exist"""
@@ -24,8 +53,11 @@ def init_csv():
                 'blob_fee_wei',
                 'blob_fee_eth',
                 'cost_per_blob_eth',
+                'cost_per_blob_usd',
                 'blob_gas_used',
-                'block_revenue_eth'
+                'block_revenue_eth',
+                'block_revenue_usd',
+                'eth_price'
             ])
 
 def save_to_csv(data):
@@ -38,8 +70,11 @@ def save_to_csv(data):
             data['blob_fee_wei_raw'],
             data['blob_fee_eth_raw'],
             data['cost_per_blob_eth_raw'],
+            data['cost_per_blob_usd_raw'],
             data['blob_gas_used_raw'],
-            data['block_revenue_eth_raw']
+            data['block_revenue_eth_raw'],
+            data['block_revenue_usd_raw'],
+            data['eth_price']
         ])
 
 def read_csv_data():
@@ -86,6 +121,9 @@ def calculate_block_revenue(blob_base_fee_wei, blob_gas_used):
 
 def get_blob_metrics():
     """Fetch all blob metrics"""
+    # Get current ETH price
+    eth_price = get_eth_price()
+    
     # Get blob base fee
     blob_fee_wei = get_blob_base_fee()
     blob_fee_eth = wei_to_eth(blob_fee_wei)
@@ -97,26 +135,27 @@ def get_blob_metrics():
     # Calculate revenue
     block_revenue = calculate_block_revenue(blob_fee_wei, block_info['blob_gas_used'])
     
-    # Assume $4k ETH for USD calculations
-    ETH_PRICE = 4000
-    
     data = {
         'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
         'block_number': block_info['block_number'],
+        'eth_price': eth_price,
         'blob_fee_wei': f"{blob_fee_wei:,}",
         'blob_fee_eth': f"{blob_fee_eth:.10f}",
+        'blob_fee_usd': f"${blob_fee_eth * eth_price:.8f}",
         'cost_per_blob_eth': f"{cost_per_blob:.6f}",
-        'cost_per_blob_usd': f"${cost_per_blob * ETH_PRICE:.2f}",
+        'cost_per_blob_usd': f"${cost_per_blob * eth_price:.2f}",
         'blob_gas_used': f"{block_info['blob_gas_used']:,}",
         'block_revenue_eth': f"{block_revenue:.6f}",
-        'block_revenue_usd': f"${block_revenue * ETH_PRICE:.2f}",
+        'block_revenue_usd': f"${block_revenue * eth_price:.2f}",
         'fee_is_zero': blob_fee_wei == 0,
         # Raw values for CSV storage
         'blob_fee_wei_raw': blob_fee_wei,
         'blob_fee_eth_raw': blob_fee_eth,
         'cost_per_blob_eth_raw': cost_per_blob,
+        'cost_per_blob_usd_raw': cost_per_blob * eth_price,
         'blob_gas_used_raw': block_info['blob_gas_used'],
-        'block_revenue_eth_raw': block_revenue
+        'block_revenue_eth_raw': block_revenue,
+        'block_revenue_usd_raw': block_revenue * eth_price
     }
     
     # Save to CSV
@@ -161,7 +200,10 @@ if __name__ == '__main__':
         print("Make sure to add your Alchemy API key!")
         exit(1)
     
-    print("✓ Connected to Ethereum mainnet")
-    print("✓ CSV logging enabled")
+    # Get initial ETH price
+    eth_price = get_eth_price()
+    print(f"✓ Connected to Ethereum mainnet")
+    print(f"✓ CSV logging enabled")
+    print(f"✓ ETH price: ${eth_price:,.2f}")
     print("Starting Flask app at http://localhost:5000")
     app.run(debug=True, port=5000)

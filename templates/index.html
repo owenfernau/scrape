@@ -39,6 +39,12 @@
         .timestamp {
             color: #666;
             font-size: 0.85rem;
+            margin-bottom: 8px;
+        }
+        
+        .eth-price {
+            color: #888;
+            font-size: 0.85rem;
             margin-bottom: 20px;
         }
         
@@ -131,6 +137,7 @@
         <p class="subtitle">Post-Fusaka metrics • Live data from Alchemy</p>
         
         <p class="timestamp" id="timestamp">Last updated: {{ timestamp }}</p>
+        <p class="eth-price" id="eth-price">ETH Price: ${{ "%.2f"|format(eth_price) }}</p>
         
         {% if fee_is_zero %}
         <div class="status warning">
@@ -145,8 +152,8 @@
         <div class="grid">
             <div class="card">
                 <h2>Blob Base Fee</h2>
-                <div class="value" id="blob_fee_eth">{{ blob_fee_eth }} ETH</div>
-                <div class="sub-value" id="blob_fee_wei">{{ blob_fee_wei }} wei</div>
+                <div class="value" id="blob_fee_usd">{{ blob_fee_usd }}</div>
+                <div class="sub-value" id="blob_fee_eth">{{ blob_fee_eth }} ETH</div>
             </div>
             
             <div class="card">
@@ -169,36 +176,97 @@
         </div>
         
         <div class="chart-container">
-            <h2>Cost Per Blob Over Time</h2>
+            <h2>Block Revenue Over Time (USD)</h2>
+            <canvas id="revenueChart"></canvas>
+        </div>
+        
+        <div class="chart-container">
+            <h2>Cost Per Blob Over Time (USD)</h2>
             <canvas id="blobChart"></canvas>
         </div>
     </div>
     
     <script>
-        let chart;
+        let revenueChart;
+        let blobChart;
         
-        // Initialize chart
-        async function initChart() {
-            const ctx = document.getElementById('blobChart').getContext('2d');
-            
+        // Initialize charts
+        async function initCharts() {
             // Fetch historical data
             const response = await fetch('/api/history');
             const data = await response.json();
             
-            // Prepare chart data
+            // Prepare shared labels
             const labels = data.map(d => {
                 const date = new Date(d.timestamp);
                 return date.toLocaleTimeString();
             });
-            const values = data.map(d => parseFloat(d.cost_per_blob_eth));
             
-            chart = new Chart(ctx, {
+            // Revenue Chart
+            const revenueCtx = document.getElementById('revenueChart').getContext('2d');
+            const revenueValues = data.map(d => parseFloat(d.block_revenue_usd));
+            
+            revenueChart = new Chart(revenueCtx, {
                 type: 'line',
                 data: {
                     labels: labels,
                     datasets: [{
-                        label: 'Cost Per Blob (ETH)',
-                        data: values,
+                        label: 'Block Revenue (USD)',
+                        data: revenueValues,
+                        borderColor: '#4ade80',
+                        backgroundColor: 'rgba(74, 222, 128, 0.1)',
+                        tension: 0.4,
+                        fill: true
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: true,
+                    plugins: {
+                        legend: {
+                            labels: {
+                                color: '#e0e0e0'
+                            }
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            ticks: {
+                                color: '#888',
+                                callback: function(value) {
+                                    return '$' + value.toFixed(2);
+                                }
+                            },
+                            grid: {
+                                color: '#2a2a2a'
+                            }
+                        },
+                        x: {
+                            ticks: {
+                                color: '#888',
+                                maxRotation: 45,
+                                minRotation: 45
+                            },
+                            grid: {
+                                color: '#2a2a2a'
+                            }
+                        }
+                    }
+                }
+            });
+            
+            // Blob Cost Chart
+            const blobCtx = document.getElementById('blobChart').getContext('2d');
+            const blobValues = data.map(d => parseFloat(d.cost_per_blob_usd));
+            
+            blobChart = new Chart(blobCtx, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'Cost Per Blob (USD)',
+                        data: blobValues,
                         borderColor: '#60a5fa',
                         backgroundColor: 'rgba(96, 165, 250, 0.1)',
                         tension: 0.4,
@@ -219,7 +287,10 @@
                         y: {
                             beginAtZero: true,
                             ticks: {
-                                color: '#888'
+                                color: '#888',
+                                callback: function(value) {
+                                    return '$' + value.toFixed(2);
+                                }
                             },
                             grid: {
                                 color: '#2a2a2a'
@@ -240,8 +311,8 @@
             });
         }
         
-        // Update chart with new data point
-        async function updateChart() {
+        // Update charts with new data point
+        async function updateCharts() {
             const response = await fetch('/api/history');
             const data = await response.json();
             
@@ -249,11 +320,18 @@
                 const date = new Date(d.timestamp);
                 return date.toLocaleTimeString();
             });
-            const values = data.map(d => parseFloat(d.cost_per_blob_eth));
+            const revenueValues = data.map(d => parseFloat(d.block_revenue_usd));
+            const blobValues = data.map(d => parseFloat(d.cost_per_blob_usd));
             
-            chart.data.labels = labels;
-            chart.data.datasets[0].data = values;
-            chart.update();
+            // Update revenue chart
+            revenueChart.data.labels = labels;
+            revenueChart.data.datasets[0].data = revenueValues;
+            revenueChart.update();
+            
+            // Update blob cost chart
+            blobChart.data.labels = labels;
+            blobChart.data.datasets[0].data = blobValues;
+            blobChart.update();
         }
         
         // Update current metrics
@@ -264,8 +342,9 @@
                 
                 // Update all values
                 document.getElementById('timestamp').textContent = `Last updated: ${data.timestamp}`;
+                document.getElementById('eth-price').textContent = `ETH Price: $${parseFloat(data.eth_price).toFixed(2)}`;
+                document.getElementById('blob_fee_usd').textContent = data.blob_fee_usd;
                 document.getElementById('blob_fee_eth').textContent = `${data.blob_fee_eth} ETH`;
-                document.getElementById('blob_fee_wei').textContent = `${data.blob_fee_wei} wei`;
                 document.getElementById('cost_per_blob_usd').textContent = data.cost_per_blob_usd;
                 document.getElementById('cost_per_blob_eth').textContent = `${data.cost_per_blob_eth} ETH`;
                 document.getElementById('block_number').textContent = `#${data.block_number}`;
@@ -283,15 +362,15 @@
                     statusDiv.textContent = '✓ Blob fee floor is active';
                 }
                 
-                // Update chart
-                await updateChart();
+                // Update charts
+                await updateCharts();
             } catch (error) {
                 console.error('Error fetching data:', error);
             }
         }
         
         // Initialize on page load
-        initChart();
+        initCharts();
         
         // Update every 60 seconds
         setInterval(updateData, 60000);

@@ -57,6 +57,10 @@ def init_csv():
                 'blob_gas_used',
                 'block_revenue_eth',
                 'block_revenue_usd',
+                'base_fee_wei',
+                'gas_used',
+                'base_fee_burned_eth',
+                'base_fee_burned_usd',
                 'eth_price'
             ])
 
@@ -74,6 +78,10 @@ def save_to_csv(data):
             data['blob_gas_used_raw'],
             data['block_revenue_eth_raw'],
             data['block_revenue_usd_raw'],
+            data['base_fee_wei_raw'],
+            data['gas_used_raw'],
+            data['base_fee_burned_eth_raw'],
+            data['base_fee_burned_usd_raw'],
             data['eth_price']
         ])
 
@@ -88,6 +96,41 @@ def read_csv_data():
         for row in reader:
             data.append(row)
     return data
+
+def calculate_annualized_revenue():
+    """Calculate annualized revenue based on recent hourly average"""
+    data = read_csv_data()
+    if len(data) == 0:
+        return None
+    
+    # Check if we have at least 1 hour of data (60 samples at 1/min)
+    if len(data) < 60:
+        return None
+    
+    # Get revenue values from recent data
+    recent_revenues = []
+    for row in data:
+        try:
+            recent_revenues.append(float(row['block_revenue_usd']))
+        except (ValueError, KeyError):
+            continue
+    
+    if not recent_revenues:
+        return None
+    
+    # Calculate average revenue per sample
+    avg_revenue_per_sample = sum(recent_revenues) / len(recent_revenues)
+    
+    # Samples per hour (60 minutes / 1 sample per minute)
+    samples_per_hour = 60
+    
+    # Average hourly revenue
+    hourly_revenue = avg_revenue_per_sample * samples_per_hour
+    
+    # Annualize (hours in a year)
+    annualized = hourly_revenue * 8760
+    
+    return annualized
 
 def get_blob_base_fee():
     """Get current blob base fee in wei"""
@@ -108,9 +151,13 @@ def get_block_info():
     """Get latest block and blob usage"""
     block = w3.eth.get_block('latest')
     blob_gas_used = block.get('blobGasUsed', 0)
+    base_fee_per_gas = block.get('baseFeePerGas', 0)
+    gas_used = block.get('gasUsed', 0)
     return {
         'block_number': block['number'],
         'blob_gas_used': blob_gas_used,
+        'base_fee_per_gas': base_fee_per_gas,
+        'gas_used': gas_used,
         'timestamp': block['timestamp']
     }
 
@@ -132,8 +179,15 @@ def get_blob_metrics():
     # Get block info
     block_info = get_block_info()
     
-    # Calculate revenue
+    # Calculate blob revenue
     block_revenue = calculate_block_revenue(blob_fee_wei, block_info['blob_gas_used'])
+    
+    # Calculate base fee burned (L1 burns)
+    base_fee_burned_wei = block_info['base_fee_per_gas'] * block_info['gas_used']
+    base_fee_burned_eth = wei_to_eth(base_fee_burned_wei)
+    
+    # Calculate annualized revenue
+    annualized_revenue = calculate_annualized_revenue()
     
     data = {
         'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
@@ -143,10 +197,15 @@ def get_blob_metrics():
         'blob_fee_eth': f"{blob_fee_eth:.10f}",
         'blob_fee_usd': f"${blob_fee_eth * eth_price:.8f}",
         'cost_per_blob_eth': f"{cost_per_blob:.6f}",
-        'cost_per_blob_usd': f"${cost_per_blob * eth_price:.2f}",
+        'cost_per_blob_usd': f"${cost_per_blob * eth_price:.3f}",
         'blob_gas_used': f"{block_info['blob_gas_used']:,}",
         'block_revenue_eth': f"{block_revenue:.6f}",
         'block_revenue_usd': f"${block_revenue * eth_price:.2f}",
+        'base_fee_burned_eth': f"{base_fee_burned_eth:.6f}",
+        'base_fee_burned_usd': f"${base_fee_burned_eth * eth_price:.2f}",
+        'base_fee_wei': f"{block_info['base_fee_per_gas']:,}",
+        'gas_used': f"{block_info['gas_used']:,}",
+        'annualized_revenue_usd': f"${annualized_revenue:,.0f}" if annualized_revenue is not None else "Need 1hr+ data",
         'fee_is_zero': blob_fee_wei == 0,
         # Raw values for CSV storage
         'blob_fee_wei_raw': blob_fee_wei,
@@ -155,7 +214,11 @@ def get_blob_metrics():
         'cost_per_blob_usd_raw': cost_per_blob * eth_price,
         'blob_gas_used_raw': block_info['blob_gas_used'],
         'block_revenue_eth_raw': block_revenue,
-        'block_revenue_usd_raw': block_revenue * eth_price
+        'block_revenue_usd_raw': block_revenue * eth_price,
+        'base_fee_wei_raw': block_info['base_fee_per_gas'],
+        'gas_used_raw': block_info['gas_used'],
+        'base_fee_burned_eth_raw': base_fee_burned_eth,
+        'base_fee_burned_usd_raw': base_fee_burned_eth * eth_price
     }
     
     # Save to CSV

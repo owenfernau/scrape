@@ -151,28 +151,33 @@
         
         <div class="grid">
             <div class="card">
-                <h2>Blob Base Fee</h2>
-                <div class="value" id="blob_fee_usd">{{ blob_fee_usd }}</div>
-                <div class="sub-value" id="blob_fee_eth">{{ blob_fee_eth }} ETH</div>
+                <h2>L1 Base Fee Burned</h2>
+                <div class="value highlight" id="base_fee_burned_usd">{{ base_fee_burned_usd }}</div>
+                <div class="sub-value" id="base_fee_burned_eth">{{ base_fee_burned_eth }} ETH</div>
+            </div>
+            
+            <div class="card">
+                <h2>Blob Revenue (L2s)</h2>
+                <div class="value highlight" id="block_revenue_usd">{{ block_revenue_usd }}</div>
+                <div class="sub-value" id="block_revenue_eth">{{ block_revenue_eth }} ETH</div>
+            </div>
+            
+            <div class="card">
+                <h2>Annualized Blob Revenue</h2>
+                <div class="value" id="annualized_revenue_usd">{{ annualized_revenue_usd }}</div>
+                <div class="sub-value">Based on recent avg</div>
             </div>
             
             <div class="card">
                 <h2>Cost Per Blob</h2>
-                <div class="value highlight" id="cost_per_blob_usd">{{ cost_per_blob_usd }}</div>
+                <div class="value" id="cost_per_blob_usd">{{ cost_per_blob_usd }}</div>
                 <div class="sub-value" id="cost_per_blob_eth">{{ cost_per_blob_eth }} ETH</div>
             </div>
-            
-            <div class="card">
-                <h2>Current Block</h2>
-                <div class="value" id="block_number">#{{ block_number }}</div>
-                <div class="sub-value" id="blob_gas_used">{{ blob_gas_used }} blob gas used</div>
-            </div>
-            
-            <div class="card">
-                <h2>Block Revenue</h2>
-                <div class="value highlight" id="block_revenue_usd">{{ block_revenue_usd }}</div>
-                <div class="sub-value" id="block_revenue_eth">{{ block_revenue_eth }} ETH</div>
-            </div>
+        </div>
+        
+        <div class="chart-container">
+            <h2>ETH Burns Comparison (USD)</h2>
+            <canvas id="burnComparisonChart"></canvas>
         </div>
         
         <div class="chart-container">
@@ -187,6 +192,7 @@
     </div>
     
     <script>
+        let burnComparisonChart;
         let revenueChart;
         let blobChart;
         
@@ -200,6 +206,71 @@
             const labels = data.map(d => {
                 const date = new Date(d.timestamp);
                 return date.toLocaleTimeString();
+            });
+            
+            // Burn Comparison Chart
+            const burnCtx = document.getElementById('burnComparisonChart').getContext('2d');
+            const l1Burns = data.map(d => parseFloat(d.base_fee_burned_usd));
+            const l2Burns = data.map(d => parseFloat(d.block_revenue_usd));
+            
+            burnComparisonChart = new Chart(burnCtx, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [
+                        {
+                            label: 'L1 Base Fee Burned',
+                            data: l1Burns,
+                            borderColor: '#f59e0b',
+                            backgroundColor: 'rgba(245, 158, 11, 0.1)',
+                            tension: 0.4,
+                            fill: true
+                        },
+                        {
+                            label: 'Blob Revenue (L2s)',
+                            data: l2Burns,
+                            borderColor: '#4ade80',
+                            backgroundColor: 'rgba(74, 222, 128, 0.1)',
+                            tension: 0.4,
+                            fill: true
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: true,
+                    plugins: {
+                        legend: {
+                            labels: {
+                                color: '#e0e0e0'
+                            }
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            ticks: {
+                                color: '#888',
+                                callback: function(value) {
+                                    return '$' + value.toFixed(2);
+                                }
+                            },
+                            grid: {
+                                color: '#2a2a2a'
+                            }
+                        },
+                        x: {
+                            ticks: {
+                                color: '#888',
+                                maxRotation: 45,
+                                minRotation: 45
+                            },
+                            grid: {
+                                color: '#2a2a2a'
+                            }
+                        }
+                    }
+                }
             });
             
             // Revenue Chart
@@ -320,8 +391,16 @@
                 const date = new Date(d.timestamp);
                 return date.toLocaleTimeString();
             });
+            const l1Burns = data.map(d => parseFloat(d.base_fee_burned_usd));
+            const l2Burns = data.map(d => parseFloat(d.block_revenue_usd));
             const revenueValues = data.map(d => parseFloat(d.block_revenue_usd));
             const blobValues = data.map(d => parseFloat(d.cost_per_blob_usd));
+            
+            // Update burn comparison chart
+            burnComparisonChart.data.labels = labels;
+            burnComparisonChart.data.datasets[0].data = l1Burns;
+            burnComparisonChart.data.datasets[1].data = l2Burns;
+            burnComparisonChart.update();
             
             // Update revenue chart
             revenueChart.data.labels = labels;
@@ -343,12 +422,11 @@
                 // Update all values
                 document.getElementById('timestamp').textContent = `Last updated: ${data.timestamp}`;
                 document.getElementById('eth-price').textContent = `ETH Price: $${parseFloat(data.eth_price).toFixed(2)}`;
-                document.getElementById('blob_fee_usd').textContent = data.blob_fee_usd;
-                document.getElementById('blob_fee_eth').textContent = `${data.blob_fee_eth} ETH`;
+                document.getElementById('base_fee_burned_usd').textContent = data.base_fee_burned_usd;
+                document.getElementById('base_fee_burned_eth').textContent = `${data.base_fee_burned_eth} ETH`;
                 document.getElementById('cost_per_blob_usd').textContent = data.cost_per_blob_usd;
                 document.getElementById('cost_per_blob_eth').textContent = `${data.cost_per_blob_eth} ETH`;
-                document.getElementById('block_number').textContent = `#${data.block_number}`;
-                document.getElementById('blob_gas_used').textContent = `${data.blob_gas_used} blob gas used`;
+                document.getElementById('annualized_revenue_usd').textContent = data.annualized_revenue_usd;
                 document.getElementById('block_revenue_usd').textContent = data.block_revenue_usd;
                 document.getElementById('block_revenue_eth').textContent = `${data.block_revenue_eth} ETH`;
                 
